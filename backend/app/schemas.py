@@ -79,3 +79,11 @@ class SimulationStatusResponse(BaseModel):
     logs: List[AgentAuditLogRead]
     flights: List[FlightOptionRead]
     hotels: List[HotelOptionRead]
+
+
+class FlightStatusWebhookRequest(BaseModel):
+    flight_number: str
+    event_type: str  # CANCELLATION, DELAY
+    reason: str
+    delay_hours: Optional[int] = 0
+

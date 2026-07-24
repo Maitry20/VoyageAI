@@ -149,7 +149,7 @@ export default function LandingPage() {
             Amex Hackathon 2026
           </span>
           <Link
-            href="/dashboard"
+            href="/login"
             className="flex items-center gap-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-sm px-4 py-2 rounded-lg shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 transition-all duration-300"
           >
             Dashboard Demo <ArrowRight className="w-4 h-4" />
@@ -196,7 +196,7 @@ export default function LandingPage() {
             className="mt-8 flex items-center justify-center gap-4"
           >
             <Link
-              href="/dashboard"
+              href="/login"
               className="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-6 py-3 rounded-lg shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2"
             >
               Launch Live Agent Monitor <ArrowRight className="w-4 h-4" />
@@ -592,7 +592,7 @@ export default function LandingPage() {
           </p>
           <div className="mt-8 flex justify-center gap-4">
             <Link
-              href="/dashboard"
+              href="/login"
               className="bg-blue-600 hover:bg-blue-500 text-white font-semibold text-base px-8 py-4 rounded-xl shadow-xl shadow-blue-500/20 hover:scale-105 transition-all"
             >
               Launch Demo Dashboard
