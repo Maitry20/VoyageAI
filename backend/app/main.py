@@ -1,10 +1,12 @@
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from typing import List
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
-from app.database import create_db_and_tables, get_session
+from app.database import create_db_and_tables, get_session, engine
 from app.models import Trip, AgentAuditLog, FlightOption, HotelOption, DisruptionEvent
 from app.schemas import (
     TripRead,
@@ -13,9 +15,11 @@ from app.schemas import (
     AgentAuditLogRead,
     FlightOptionRead,
     HotelOptionRead,
-    TimelineEvent
+    TimelineEvent,
+    FlightStatusWebhookRequest
 )
 from app.services.simulation import populate_mock_data, run_disruption_simulation, get_running_simulation
+from app.auth import get_current_user
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -210,3 +214,85 @@ def get_simulation_status(trip_id: str, session: Session = Depends(get_session))
         flights=flights,
         hotels=hotels
     )
+
+
+@app.get("/api/simulation/stream/{trip_id}")
+async def stream_simulation(
+    trip_id: str,
+    session: Session = Depends(get_session),
+    current_user: dict = Depends(get_current_user)
+):
+    async def event_generator():
+        last_log_count = -1
+        while True:
+            sim_status = get_running_simulation(trip_id)
+            
+            with Session(engine) as db_session:
+                logs_count = db_session.exec(
+                    select(AgentAuditLog).where(AgentAuditLog.trip_id == trip_id)
+                ).all()
+                
+            current_log_count = len(logs_count)
+            is_running = sim_status["is_running"]
+            
+            if current_log_count != last_log_count or is_running:
+                status_res = get_simulation_status(trip_id, session=session)
+                yield f"data: {status_res.model_dump_json()}\n\n"
+                last_log_count = current_log_count
+                
+            if not is_running and current_log_count == last_log_count:
+                break
+                
+            await asyncio.sleep(1.0)
+            
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/api/webhook/flight-status")
+def flight_status_webhook(
+    request: FlightStatusWebhookRequest,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session)
+):
+    # Find all active trips matching this flight number
+    trips = session.exec(select(Trip).where(Trip.flight_number == request.flight_number)).all()
+    if not trips:
+        return {"message": "No active trips found matching flight number.", "flight_number": request.flight_number}
+        
+    triggered_trips = []
+    for trip in trips:
+        sim_status = get_running_simulation(trip.id)
+        if sim_status["is_running"]:
+            continue
+            
+        background_tasks.add_task(
+            run_disruption_simulation,
+            trip_id=trip.id,
+            event_type=request.event_type,
+            reason=request.reason,
+            delay_hours=request.delay_hours
+        )
+        triggered_trips.append(trip.id)
+        
+    return {
+        "message": f"Webhook received. Triggered auto-rebooking for {len(triggered_trips)} trip(s).",
+        "flight_number": request.flight_number,
+        "triggered_trip_ids": triggered_trips
+    }
+
+
+@app.post("/api/trips/{trip_id}/confirm")
+def confirm_trip_rebooking(
+    trip_id: str,
+    session: Session = Depends(get_session)
+):
+    trip = session.get(Trip, trip_id)
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+        
+    trip.status = "RESOLVED"
+    session.add(trip)
+    session.commit()
+    return {"message": f"Trip {trip_id} rebooking has been confirmed and resolved.", "trip_id": trip_id, "status": "RESOLVED"}
+
+

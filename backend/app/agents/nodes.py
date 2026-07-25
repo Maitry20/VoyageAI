@@ -1,14 +1,22 @@
 from datetime import datetime, timedelta
 import json
+import os
 from typing import Dict, Any, List
+import google.generativeai as genai
 from app.agents.state import AgentState
-from app.adapters.flight_adapter import MockFlightSearchAdapter
-from app.adapters.hotel_adapter import MockHotelSearchAdapter
+from app.adapters.flight_adapter import LiteApiFlightSearchAdapter
+from app.adapters.hotel_adapter import LiteApiHotelSearchAdapter
 from app.adapters.transport_adapter import MockTransportSearchAdapter
 
+# Setup Gemini if API Key is configured
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
+
+
 # Initialize Adapters
-flight_adapter = MockFlightSearchAdapter()
-hotel_adapter = MockHotelSearchAdapter()
+flight_adapter = LiteApiFlightSearchAdapter()
+hotel_adapter = LiteApiHotelSearchAdapter()
 transport_adapter = MockTransportSearchAdapter()
 
 def log_agent_action(state: AgentState, agent_name: str, status: str, action: str, output: Any) -> Dict[str, Any]:
@@ -334,6 +342,23 @@ def notification_node(state: AgentState) -> Dict[str, Any]:
         message += f"Ground transit has been coordinated: {selected_transit['name']} (${selected_transit['price']}). "
     message += "All changes conform to your corporate travel policy. Tap details to confirm."
     
+    if GEMINI_KEY:
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            prompt = f"""
+            Generate a friendly, concise, and helpful SMS update to Maitry Patel regarding a travel disruption.
+            Current rebooking details:
+            - Flight: {selected_flight}
+            - Hotel: {selected_hotel}
+            - Transit: {selected_transit}
+            
+            Keep the length under 160 characters. Speak as 'VoyageAI Concierge'.
+            """
+            response = model.generate_content(prompt)
+            message = response.text.strip()
+        except Exception:
+            pass
+
     action = "Dispatching real-time SMS and App notifications to passenger."
     output = {
         "recipient": "Maitry Patel",
@@ -371,43 +396,81 @@ def audit_node(state: AgentState) -> Dict[str, Any]:
 # 10. Supervisor Node (Routing Logic)
 def supervisor_node(state: AgentState) -> Dict[str, Any]:
     logs = list(state.get("agent_logs") or [])
-    
-    # Check what logs exist to decide which node should run next
     completed_nodes = [log["agent_name"] for log in logs]
     
     next_node = None
     reason = ""
     
-    if "Flight Monitoring" not in completed_nodes:
-        next_node = "Flight Monitoring"
-        reason = "Initiating active itinerary details and tracking."
-    elif "Disruption Detection" not in completed_nodes:
-        next_node = "Disruption Detection"
-        reason = "Evaluating severity of disruption event."
-    elif "Preference" not in completed_nodes:
-        next_node = "Preference"
-        reason = "Aligning constraints with user's personal travel preferences."
-    elif "Flight Rebooking" not in completed_nodes:
-        next_node = "Flight Rebooking"
-        reason = "Searching alternative flight connections."
-    elif "Hotel Management" not in completed_nodes:
-        next_node = "Hotel Management"
-        reason = "Assessing overnight accommodation necessity."
-    elif "Transportation" not in completed_nodes:
-        next_node = "Transportation"
-        reason = "Arranging taxi/shuttle logistics."
-    elif "Travel Policy" not in completed_nodes:
-        next_node = "Travel Policy"
-        reason = "Verifying corporate compliance limits and exception thresholds."
-    elif "Notification" not in completed_nodes:
-        next_node = "Notification"
-        reason = "Preparing dispatch notifications to user."
-    elif "Audit" not in completed_nodes:
-        next_node = "Audit"
-        reason = "Recording final blockchain compliance trace and DB write."
-    else:
-        next_node = "END"
-        reason = "Concierge resolution fully settled."
+    if GEMINI_KEY:
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            prompt = f"""
+            You are the Supervisor of a travel concierge.
+            You must decide which step to execute next based on the completed agent logs:
+            Completed: {completed_nodes}
+            
+            Options of steps to route to next (in strict logical order, do not skip if not completed):
+            1. 'Flight Monitoring' (Retrieves flight details, starts first)
+            2. 'Disruption Detection' (Analyzes the cancellation or delay severity)
+            3. 'Preference' (Loads user preferences and loyalty programs)
+            4. 'Flight Rebooking' (Searches for flight options)
+            5. 'Hotel Management' (Finds lodging if needed)
+            6. 'Transportation' (Finds airport-to-hotel transit if needed)
+            7. 'Travel Policy' (Validates options against travel budget policy)
+            8. 'Notification' (Prepares customer alert)
+            9. 'Audit' (Saves compliance records, runs last)
+            
+            If all are completed, respond with routing_decision: 'END'.
+            
+            Respond strictly in valid JSON format:
+            {{
+              "routing_decision": "NAME_OF_STEP_OR_END",
+              "reason": "Short explanation of the step rationale"
+            }}
+            """
+            response = model.generate_content(prompt)
+            text = response.text.strip()
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0].strip()
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0].strip()
+            decision = json.loads(text)
+            next_node = decision.get("routing_decision")
+            reason = decision.get("reason", "Dynamic Gemini routing.")
+        except Exception:
+            pass
+
+    if not next_node:
+        if "Flight Monitoring" not in completed_nodes:
+            next_node = "Flight Monitoring"
+            reason = "Initiating active itinerary details and tracking."
+        elif "Disruption Detection" not in completed_nodes:
+            next_node = "Disruption Detection"
+            reason = "Evaluating severity of disruption event."
+        elif "Preference" not in completed_nodes:
+            next_node = "Preference"
+            reason = "Aligning constraints with user's personal travel preferences."
+        elif "Flight Rebooking" not in completed_nodes:
+            next_node = "Flight Rebooking"
+            reason = "Searching alternative flight connections."
+        elif "Hotel Management" not in completed_nodes:
+            next_node = "Hotel Management"
+            reason = "Assessing overnight accommodation necessity."
+        elif "Transportation" not in completed_nodes:
+            next_node = "Transportation"
+            reason = "Arranging taxi/shuttle logistics."
+        elif "Travel Policy" not in completed_nodes:
+            next_node = "Travel Policy"
+            reason = "Verifying corporate compliance limits and exception thresholds."
+        elif "Notification" not in completed_nodes:
+            next_node = "Notification"
+            reason = "Preparing dispatch notifications to user."
+        elif "Audit" not in completed_nodes:
+            next_node = "Audit"
+            reason = "Recording final blockchain compliance trace and DB write."
+        else:
+            next_node = "END"
+            reason = "Concierge resolution fully settled."
 
     action = f"Routing Supervisor assessment: {reason}"
     output = {
