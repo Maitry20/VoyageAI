@@ -12,16 +12,6 @@
 
 ---
 
-## 📌 GitHub Metadata (For Repository Settings)
-
-* **Short About Description** (max 350 chars):
-  > Autonomous corporate travel concierge powered by LangGraph multi-agent AI. Automatically detects flight disruptions, rebooks connections, reserves hotels, coordinates ground transit, and enforces corporate travel policy in real time.
-
-* **Topics / Tags**:
-  `langgraph` `ai-agents` `multi-agent-systems` `fastapi` `nextjs` `react19` `tailwindcss` `gsap` `travel-tech` `hackathon` `python` `typescript`
-
----
-
 ## 🌟 Key Features
 
 * 🧠 **LangGraph Multi-Agent Architecture**: 9 specialized agent nodes orchestrated by a central Supervisor Agent routing flow dynamically based on state evaluation.
